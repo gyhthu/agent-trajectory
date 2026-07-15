@@ -243,7 +243,272 @@ sequenceDiagram
 
 其余头，包括 `Authorization`，原样传给上游。代理只落一个布尔值 `had_auth`，**不落任何 header，也不落 bearer token**。
 
-### 3.2 响应侧处理
+### 3.2 Codex 发给 ChatGPT 的 HTTP 请求字段
+
+这里的“顶层字段”专指 `POST /backend-api/codex/responses` 的 JSON body，不包括 `Authorization`、`Content-Encoding` 等 HTTP header。当前源码中的 `ResponsesApiRequest` 一共有 15 个顶层候选字段；带 `Option` 的字段为空时不会序列化，`instructions` 为空字符串时也会省略。因此，不是每次抓包都会同时看到全部 15 个字段。
+
+| 顶层字段 | 类型 | 是否稳定出现 | 作用与兼容注意事项 |
+|---|---|---:|---|
+| `model` | string | 是 | 请求的模型 ID。ChatGPT 后端可能通过响应头或最终 response 告知实际路由模型。 |
+| `instructions` | string | 标准 Responses 是 | Codex 的 base/system instructions；Responses Lite 中为空或省略，内容改放进 `input` 的 developer message。 |
+| `input` | array | 是 | 模型本轮可见的上下文，由多种 `ResponseItem` 组成，不等同于 Chat Completions 的纯 messages 数组。 |
+| `tools` | array / null | 标准 Responses 通常是 | 工具定义及 JSON Schema；Responses Lite 中改放进 `input[].type=additional_tools`。 |
+| `tool_choice` | string | 是 | 当前 Codex 固定为 `"auto"`，允许模型决定是否调用工具。 |
+| `parallel_tool_calls` | boolean | 是 | 是否允许并行工具调用；Responses Lite 下固定为 `false`。 |
+| `reasoning` | object / null | 通常是 | 推理强度、摘要和上下文范围，子字段见下文。 |
+| `store` | boolean | 是 | 当前仅 Azure Responses endpoint 会设为 `true`，ChatGPT/普通自定义 provider 通常为 `false`。 |
+| `stream` | boolean | 是 | HTTP 分支固定为 `true`，服务端以 SSE 流返回事件。 |
+| `stream_options` | object | 条件出现 | OpenAI provider 且启用并发 reasoning summary 时，控制摘要的流式交付方式。 |
+| `include` | array | 是 | 当前固定包含 `"reasoning.encrypted_content"`，请求服务端附带不可读的 reasoning continuation state。 |
+| `service_tier` | string | 条件出现 | 服务等级；不支持的自部署服务应忽略，而不是因此拒绝整个请求。 |
+| `prompt_cache_key` | string | 通常是 | Codex 生成的 prompt cache 标识，用于提高相同前缀的缓存命中。 |
+| `text` | object | 条件出现 | 输出 verbosity 或 JSON Schema 格式控制。 |
+| `client_metadata` | object | 通常是 | Codex/OpenAI 使用的客户端元数据；非 OpenAI provider 可安全忽略未识别键。 |
+
+对应的源码定义在 `openai-codex/codex-rs/codex-api/src/common.rs:215-239`，实际赋值在 `openai-codex/codex-rs/core/src/client.rs:890-906`。
+
+#### 一个接近真实的完整请求例子
+
+下面是“已经发生过一次工具调用，Codex 把调用结果送回模型继续生成”的示意。实际 instructions 和 tools 通常很长，这里只保留结构：
+
+```json
+{
+  "model": "gpt-5-codex",
+  "instructions": "You are Codex, a coding agent. Follow repository instructions...",
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {"type": "input_text", "text": "检查这个仓库的测试失败原因"}
+      ]
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_123",
+      "summary": [],
+      "content": null,
+      "encrypted_content": "opaque-encrypted-blob"
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "phase": "commentary",
+      "content": [
+        {"type": "output_text", "text": "我先运行测试并定位第一个失败。"}
+      ]
+    },
+    {
+      "type": "function_call",
+      "id": "fc_123",
+      "call_id": "call_123",
+      "name": "exec_command",
+      "arguments": "{\"cmd\":\"pytest -q\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_123",
+      "output": "1 failed, 23 passed ..."
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "name": "exec_command",
+      "description": "Run a command in a PTY",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "cmd": {"type": "string"},
+          "workdir": {"type": "string"}
+        },
+        "required": ["cmd"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": true,
+  "reasoning": {
+    "effort": "medium",
+    "summary": "auto"
+  },
+  "store": false,
+  "stream": true,
+  "include": ["reasoning.encrypted_content"],
+  "prompt_cache_key": "session-derived-cache-key",
+  "text": {"verbosity": "medium"},
+  "client_metadata": {"originator": "codex_cli_rs"}
+}
+```
+
+第一次请求通常只有 instructions、用户输入和 tools；后续请求才逐渐累积 assistant message、reasoning、function call 和 function call output。一次 Codex turn 因而可能对应多次这样的 HTTP call。
+
+#### `instructions`：它是什么，为什么重要
+
+标准 Responses 中，`instructions` 是独立于 `input` 的顶层字符串，由 `prompt.base_instructions.text` 写入。它通常包含 Codex 的身份、工作方式、工具使用约束、输出要求和安全边界，是模型实际看到的最高层基础指令之一：
+
+```json
+{
+  "instructions": "You are Codex, a coding agent. You and the user share a workspace..."
+}
+```
+
+需要区分三类容易混在一起的指令：
+
+| 语义来源 | 标准 Responses wire 位置 | 建议归一化语义 |
+|---|---|---|
+| Codex base instructions | 顶层 `instructions` | `role=system, subtype=base_instructions` |
+| 运行时 developer instructions | `input[].type=message, role=developer` | `role=developer, subtype=runtime_developer_instructions` |
+| 用户请求 | `input[].type=message, role=user` | `role=user` |
+
+标准 Responses 例子：
+
+```json
+{
+  "instructions": "Codex base instructions...",
+  "input": [
+    {
+      "type": "message",
+      "role": "developer",
+      "content": [
+        {"type": "input_text", "text": "本仓库修改后必须运行单元测试。"}
+      ]
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {"type": "input_text", "text": "修复登录失败。"}
+      ]
+    }
+  ]
+}
+```
+
+Responses Lite 不再使用顶层 `instructions`，而是把同一份 base instructions 搬成 developer message：
+
+```json
+{
+  "input": [
+    {
+      "type": "additional_tools",
+      "role": "developer",
+      "tools": []
+    },
+    {
+      "type": "message",
+      "role": "developer",
+      "content": [
+        {"type": "input_text", "text": "Codex base instructions..."}
+      ]
+    }
+  ],
+  "parallel_tool_calls": false,
+  "reasoning": {"context": "all_turns"}
+}
+```
+
+因此，不能把所有 `role=developer` 都简单等同为同一种 prompt：Lite 的第一条 Codex 注入 developer message 在语义上对应标准 Responses 的顶层 base instructions，其他 developer message 才可能是 repo、管理员或运行时附加指令。
+
+#### `input` 中不同 `type` 的含义
+
+当前 Codex 的 `ResponseItem` 枚举能够识别下列 wire type。常规代码 agent 轨迹最重要的是前六类；后面的类型只在相应能力启用时出现。
+
+| `input[].type` | 关键字段 | 含义 |
+|---|---|---|
+| `message` | `role`, `content`, `phase?` | developer/user/assistant 消息；最基本的上下文项。 |
+| `additional_tools` | `role`, `tools` | Responses Lite 把顶层 tools 搬入 input 后的表示。 |
+| `reasoning` | `summary`, `content?`, `encrypted_content?` | 上一轮推理项；ChatGPT 常见为密文，兼容服务也可返回明文 reasoning text。 |
+| `function_call` | `name`, `arguments`, `call_id` | 模型请求调用一个 JSON Schema function tool。 |
+| `function_call_output` | `call_id`, `output` | Codex 执行 function 后回传的结果。 |
+| `custom_tool_call` | `name`, `input`, `call_id` | freeform/custom tool 调用，输入不一定是 JSON object。 |
+| `custom_tool_call_output` | `call_id`, `output` | custom tool 的执行结果。 |
+| `local_shell_call` | `call_id`, `status`, `action` | Responses 原生 shell action。 |
+| `agent_message` | `author`, `recipient`, `content` | agent 之间的定向消息，内容可能是明文或加密内容。 |
+| `tool_search_call` | `call_id`, `execution`, `arguments` | 动态搜索可用工具。 |
+| `tool_search_output` | `call_id`, `status`, `tools` | 工具搜索结果。 |
+| `web_search_call` | `status`, `action` | 服务端内建 web search 事件。 |
+| `image_generation_call` | `status`, `result`, `revised_prompt?` | 服务端图片生成结果。 |
+| `compaction` | `encrypted_content` | 服务端产生的加密上下文压缩项；旧名 `compaction_summary` 也可解析。 |
+| `compaction_trigger` | 无 | 请求服务端执行压缩的控制项，不是持久输出。 |
+| `context_compaction` | `encrypted_content?` | 另一种上下文压缩表示。 |
+
+`message.content[]` 自身还有第二层 type：
+
+```json
+{
+  "type": "message",
+  "role": "user",
+  "content": [
+    {"type": "input_text", "text": "解释这张图"},
+    {"type": "input_image", "image_url": "data:image/png;base64,...", "detail": "high"}
+  ]
+}
+```
+
+| `content[].type` | 方向 | 关键字段 |
+|---|---|---|
+| `input_text` | 输入 | `text` |
+| `input_image` | 输入 | `image_url`, `detail?` |
+| `output_text` | assistant 历史输出 | `text` |
+
+其中 assistant message 还可能带 `phase=commentary | final_answer`。这个字段用于区分过程性说明和终局回答，但 provider/model 并不总是返回，归一化时必须允许 `phase` 缺失。
+
+#### 工具调用必须保持 `call_id` 闭环
+
+工具调用的 `arguments` 在 wire 上是“包含 JSON 的字符串”，不是已经解析好的对象：
+
+```json
+{
+  "type": "function_call",
+  "call_id": "call_abc",
+  "name": "exec_command",
+  "arguments": "{\"cmd\":\"rg --files\"}"
+}
+```
+
+Codex 执行后，下一次请求使用相同 `call_id` 回传结果：
+
+```json
+{
+  "type": "function_call_output",
+  "call_id": "call_abc",
+  "output": "README.md\nsrc/main.rs\n"
+}
+```
+
+`function_call.call_id` 与 `function_call_output.call_id` 是 agent 工具闭环的关联键。兼容 Qwen/vLLM 时，即使 reasoning 暂时不支持，也必须先保证 call name、arguments 和 call_id 能按 Responses 协议稳定往返，否则 Codex 无法继续 agent loop。
+
+#### `reasoning`：请求配置和历史 item 是两回事
+
+顶层 `reasoning` 是“本次如何推理”的配置：
+
+```json
+{
+  "reasoning": {
+    "effort": "medium",
+    "summary": "auto",
+    "context": "all_turns"
+  }
+}
+```
+
+而 `input[].type=reasoning` 是“上一轮已经产生的推理项”：
+
+```json
+{
+  "type": "reasoning",
+  "id": "rs_123",
+  "summary": [],
+  "content": null,
+  "encrypted_content": "opaque-encrypted-blob"
+}
+```
+
+二者不能混为一个字段。Codex 请求 `include=["reasoning.encrypted_content"]` 后，ChatGPT 可以把不可读状态作为 reasoning item 返回；下一轮 Codex 原样放回 `input`，它的用途是延续推理状态，不是给客户端解密阅读。自部署 Qwen 若返回明文，可把 `content` 写成 `[{"type":"reasoning_text","text":"..."}]`，不需要伪造 `encrypted_content`。
+
+### 3.3 响应侧处理
 
 代理一边把上游 chunk 写回 Codex，一边把同一批字节复制到 buffer。这样在线响应优先，采集是旁路行为：
 
@@ -252,7 +517,7 @@ sequenceDiagram
 
 上游响应按内容而非 `Content-Type` 判断是否为 SSE，因为实际 endpoint 的响应头不一定声明 `text/event-stream`。只要正文同时出现 `data:` 和 `response.`，就尝试解析 Responses 事件。
 
-### 3.3 为什么要同时保存重建结果和 `response_raw`
+### 3.4 为什么要同时保存重建结果和 `response_raw`
 
 Responses 是事件流，最终有用信息分散在不同事件中：
 
@@ -547,6 +812,137 @@ Responses Lite 则把 instructions 和 tools 都移进 `input`：
 
 因此，这两个不足实际上互相关联：**Responses Lite 把原本位于顶层的 system/tools 搬进了 developer input，而当前 adapter 既不识别 Lite，也没有足够细的 developer 语义模型。**
 
+### 5.9 字段变化图：从 wire record 到 normalized trajectory
+
+下面按“保留、重组、派生、剥离”四类标出字段变化。这里的 raw 侧表示 `codex_capture_proxy.py` 的标准 Responses record；Responses Lite 的例外见上一节。
+
+```mermaid
+flowchart LR
+    subgraph RAW["原始 wire record"]
+        RM["ts / path / status"]
+        RMO["request.model"]
+        RI["request.instructions"]
+        RIN["request.input[]"]
+        RT["request.tools[]"]
+        RE["request.reasoning.effort"]
+        RO["response.final_response.output[]"]
+        RU["response.final_response.usage"]
+        RS["response temperature / top_p"]
+        RR["type=reasoning<br/>encrypted_content"]
+        RRAW["response_raw SSE"]
+    end
+
+    subgraph OP["归一化操作"]
+        K["① 保留 / 改路径"]
+        M["② 重组为 messages"]
+        B["③ 计算补全边界"]
+        D["④ 派生审计字段"]
+        X["⑤ 剥离不可训练内容"]
+    end
+
+    subgraph NORM["归一化 trajectory"]
+        NM["ts / path / status / model"]
+        NSYS["messages[]<br/>system: base_instructions"]
+        NCTX["messages[]<br/>input context"]
+        NOUT["messages[]<br/>current completion"]
+        NT["tools[]"]
+        NU["usage"]
+        NS["sampling<br/>temperature / top_p / reasoning_effort"]
+        NB["completion_start_index"]
+        NF["source / source_file / fidelity"]
+        NX["n_reasoning_stripped"]
+    end
+
+    RM --> K --> NM
+    RMO --> K
+    RI --> M --> NSYS
+    RIN --> M --> NCTX
+    RO --> M --> NOUT
+    RT --> K --> NT
+    RU --> K --> NU
+    RE --> D --> NS
+    RS --> D
+    NCTX --> B --> NB
+    NOUT --> B
+    RM --> D --> NF
+    RR --> X --> NX
+    RRAW -. "只留在 raw capture<br/>不进入 normalized JSONL" .-> X
+
+    classDef kept fill:#dbeafe,stroke:#2563eb,color:#172554;
+    classDef reshape fill:#fef3c7,stroke:#d97706,color:#451a03;
+    classDef derived fill:#dcfce7,stroke:#16a34a,color:#052e16;
+    classDef stripped fill:#fee2e2,stroke:#dc2626,color:#450a0a;
+    class K,NM,NT,NU kept;
+    class M,NSYS,NCTX,NOUT reshape;
+    class B,D,NS,NB,NF derived;
+    class X,NX,RR,RRAW stripped;
+```
+
+图例：
+
+- 蓝色：原值保留，只调整所在路径或字段组织；
+- 黄色：把 Responses item 重组为统一 message；
+- 绿色：adapter 新计算或补充的字段；
+- 红色：因不可读、不可训练或体积原因不进入 normalized JSONL，但用计数保留事实。
+
+#### 用 `work/1.json` 看一次真实归一化结果
+
+`work/1.json` 本身已经是归一化后的记录，不包含对应的 raw record；所以下图右侧数字直接读取该文件，左侧结构依据 adapter 的确定性映射回标，不冒充原始抓包统计。
+
+```mermaid
+flowchart LR
+    subgraph BEFORE["标准 Responses 逻辑输入"]
+        BI["request.instructions"]
+        BIN["request.input[]<br/>历史 message / function call / tool result / reasoning"]
+        BO["final_response.output[]<br/>本轮模型输出"]
+        BT["request.tools[]"]
+        BM["model / usage / sampling"]
+    end
+
+    subgraph CHANGE["adapter 变化"]
+        C1["instructions 前置为 system"]
+        C2["不同 item 统一为 role messages"]
+        C3["在追加 output 前记 index"]
+        C4["reasoning 密文剥离并计数"]
+        C5["工具和运行元数据提到顶层"]
+    end
+
+    subgraph AFTER["work/1.json"]
+        A0["messages[0]<br/>system × 1"]
+        A1["messages[1:76]：输入上下文 × 75<br/>developer 1 · user 2<br/>assistant 41 · tool 31"]
+        A2["completion_start_index = 76"]
+        A3["messages[76]：本轮 completion × 1<br/>assistant.tool_calls → exec_command"]
+        A4["tools = 12 个 schema"]
+        A5["n_reasoning_stripped = 10"]
+        A6["usage：77,163 input / 87 output<br/>71,040 cached"]
+        A7["sampling：temperature 1.0<br/>top_p 0.98 · effort medium"]
+        A8["fidelity：10 项可见能力为 true<br/>reasoning/logprob 3 项为 false"]
+    end
+
+    BI --> C1 --> A0
+    BIN --> C2 --> A1
+    BO --> C2 --> A3
+    A1 --> C3 --> A2
+    A3 --> C3
+    BIN --> C4 --> A5
+    BO --> C4
+    BT --> C5 --> A4
+    BM --> C5 --> A6
+    C5 --> A7
+    C5 --> A8
+
+    classDef source fill:#e0e7ff,stroke:#4f46e5,color:#1e1b4b;
+    classDef transform fill:#fef3c7,stroke:#d97706,color:#451a03;
+    classDef result fill:#dcfce7,stroke:#16a34a,color:#052e16;
+    classDef loss fill:#fee2e2,stroke:#dc2626,color:#450a0a;
+    class BI,BIN,BO,BT,BM source;
+    class C1,C2,C3,C5 transform;
+    class C4,A5 loss;
+    class A0,A1,A2,A3,A4,A6,A7,A8 result;
+```
+
+这个样例最直观地展示了 `completion_start_index` 的作用：77 条归一化 message 中，前 76 条是本次调用的 context，最后 1 条才是训练 target。它也说明“剥离 reasoning”不是静默删除：10 个不可读 reasoning item 没进入 messages，但数量保留在 `n_reasoning_stripped` 中。
+
 ## 6. 归一化后的输出 schema
 
 ```json
@@ -653,6 +1049,10 @@ python3 trajectory_extract/codex_wire_adapter.py \
 | `supports_websockets=false` 关闭 WS | `openai-codex/codex-rs/core/src/client.rs:926-937` |
 | Codex 优先 WS、否则 HTTP Responses | `openai-codex/codex-rs/core/src/client.rs:1768-1824` |
 | HTTP 分支构建并发送标准 Responses request | `openai-codex/codex-rs/core/src/client.rs:1378-1460` |
+| HTTP `ResponsesApiRequest` 的 15 个顶层候选字段 | `openai-codex/codex-rs/codex-api/src/common.rs:215-239` |
+| 顶层字段的实际赋值、省略条件和固定值 | `openai-codex/codex-rs/core/src/client.rs:824-907` |
+| `input` 支持的 `ResponseItem` 类型及字段 | `openai-codex/codex-rs/protocol/src/models.rs:933-1164` |
+| `message.content` 支持 input_text/input_image/output_text | `openai-codex/codex-rs/protocol/src/models.rs:843-858` |
 | Responses Lite 把 tools/base instructions 移入 developer input | `openai-codex/codex-rs/core/src/client.rs:834-863` |
 | Responses Lite 去除图片 detail | `openai-codex/codex-rs/core/src/client_common.rs:51-101` |
 | 代理 SSE 重建 | `trajectory-collect/scripts/codex_capture_proxy.py:67-120` |
