@@ -508,27 +508,245 @@ Codex 执行后，下一次请求使用相同 `call_id` 回传结果：
 
 二者不能混为一个字段。Codex 请求 `include=["reasoning.encrypted_content"]` 后，ChatGPT 可以把不可读状态作为 reasoning item 返回；下一轮 Codex 原样放回 `input`，它的用途是延续推理状态，不是给客户端解密阅读。自部署 Qwen 若返回明文，可把 `content` 写成 `[{"type":"reasoning_text","text":"..."}]`，不需要伪造 `encrypted_content`。
 
-### 3.3 响应侧处理
+### 3.3 ChatGPT 传给 Codex 的顶层字段
 
-代理一边把上游 chunk 写回 Codex，一边把同一批字节复制到 buffer。这样在线响应优先，采集是旁路行为：
+HTTP 请求设置了 `stream=true`，所以 ChatGPT 不是一次性返回一个普通 JSON，而是在 response body 中连续发送 SSE 事件。每个事件的基本 wire 形态是：
+
+```text
+event: response.output_text.delta
+data: {"type":"response.output_text.delta", ...}
+
+```
+
+Codex 和捕获代理真正解析的是每行 `data:` 后面的 JSON。事件顶层至少有 `type`，大多数还带 `sequence_number`；其余字段由事件类型决定，不能把所有事件按同一个 schema 解析。
+
+下面的字段表由两份脱敏真实样本交叉验证：
+
+- `codex_wire_raw_single_call_2026-07-13_redacted.json`：返回加密 reasoning 和最终 assistant message；
+- `codex_responses_lite_raw_with_tool_call_2026-07-15_redacted.json`：Responses Lite，请求包含 custom tool 历史，本轮返回加密 reasoning 和 `function_call(name=wait)`。
+
+#### SSE 生命周期和 item 边界事件
+
+| SSE `type` | 顶层字段 | 作用 |
+|---|---|---|
+| `response.created` | `type`, `response`, `sequence_number` | response 已创建；此时 `response.status` 通常为 `in_progress`，真实样本的 `response.output=[]`。 |
+| `response.in_progress` | `type`, `response`, `sequence_number` | 服务端进入生成阶段；真实样本的 `response.output` 仍为空。 |
+| `response.output_item.added` | `type`, `item`, `output_index`, `sequence_number` | 开始生成一个 reasoning、message 或 tool-call item；item 通常还不完整。 |
+| `response.output_item.done` | `type`, `item`, `output_index`, `sequence_number` | 一个完整结构化 item 已完成，是重建最终 output 的关键事件。 |
+| `response.completed` | `type`, `response`, `sequence_number` | 本轮成功结束，包含最终状态、实际模型和 usage。ChatGPT 实测 `response.output=[]`，完整 items 仍需从 `output_item.done` 收集。 |
+| `response.incomplete` | `type`, `response`, `sequence_number` | 因 token/context 等原因未完整结束；原因在 `response.incomplete_details`。 |
+| `response.failed` | `type`, `response`, `sequence_number` | 本轮失败；错误在 `response.error`。 |
+
+两份样本都验证了如下顺序骨架：
+
+```mermaid
+sequenceDiagram
+    participant S as ChatGPT
+    participant C as Codex
+
+    S-->>C: response.created
+    S-->>C: response.in_progress
+    S-->>C: output_item.added(reasoning)
+    S-->>C: output_item.done(reasoning)
+    S-->>C: output_item.added(message 或 function_call)
+    S-->>C: 内容或参数 delta...
+    S-->>C: 内容或参数 done
+    S-->>C: output_item.done(message 或 function_call)
+    S-->>C: response.completed
+```
+
+#### Assistant 文本 SSE 事件
+
+普通文本回答样本实际出现：
+
+| SSE `type` | 顶层字段 | 作用 |
+|---|---|---|
+| `response.content_part.added` | `type`, `content_index`, `item_id`, `output_index`, `part`, `sequence_number` | 开始一个 message content part；`part.type=output_text`。 |
+| `response.output_text.delta` | `type`, `content_index`, `delta`, `item_id`, `logprobs`, `obfuscation`, `output_index`, `sequence_number` | 文本增量；代理拼接 `delta` 得到可读正文。 |
+| `response.output_text.done` | `type`, `content_index`, `item_id`, `logprobs`, `output_index`, `sequence_number`, `text` | 当前 output text 的完整文本。 |
+| `response.content_part.done` | `type`, `content_index`, `item_id`, `output_index`, `part`, `sequence_number` | 当前 content part 完成。 |
+
+一个简化的文本 delta 是：
+
+```json
+{
+  "type": "response.output_text.delta",
+  "content_index": 0,
+  "delta": "我先检查",
+  "item_id": "msg_...",
+  "logprobs": [],
+  "obfuscation": "...",
+  "output_index": 1,
+  "sequence_number": 8
+}
+```
+
+`delta` 才是正文增量；`item_id + output_index + content_index` 负责定位它属于哪个 message/content part，`sequence_number` 用于恢复事件顺序。样本虽然带 `logprobs` 键，但值为空，不能据此声称拿到了 token-level logprob。
+
+#### Function call 参数 SSE 事件
+
+带工具调用的 Lite 样本实际出现：
+
+| SSE `type` | 顶层字段 | 作用 |
+|---|---|---|
+| `response.function_call_arguments.delta` | `type`, `delta`, `item_id`, `obfuscation`, `output_index`, `sequence_number` | function arguments 的字符串增量；该样本共 19 个 delta。 |
+| `response.function_call_arguments.done` | `type`, `arguments`, `item_id`, `output_index`, `sequence_number` | 完整 arguments JSON 字符串。 |
+
+完整 function call 最终仍由 `response.output_item.done.item` 给出：
+
+```json
+{
+  "id": "fc_...",
+  "type": "function_call",
+  "status": "completed",
+  "arguments": "{\"cell_id\":\"...\",\"yield_time_ms\":10000,\"max_tokens\":10000}",
+  "call_id": "call_...",
+  "name": "wait",
+  "internal_chat_message_metadata_passthrough": {"turn_id": "..."},
+  "metadata": {"turn_id": "..."}
+}
+```
+
+这里有三个不能破坏的约束：
+
+1. `arguments` 在 wire 上是“包含 JSON 的字符串”，不是已解析对象；
+2. `name` 必须对应请求 tools 中声明的 function name；
+3. `call_id` 必须在下一次请求的 `function_call_output.call_id` 中原样返回，才能闭合工具调用。
+
+本轮 response 只产生 function call；Codex 执行工具之后，执行结果会放进**下一次** HTTP 请求，而不会出现在同一次 SSE response 中。
+
+#### Reasoning SSE 事件
+
+Responses wire 中与可读 reasoning 有关的事件如下。两份 ChatGPT 样本均未实际出现这些事件，因此表中同时标出当前 Codex/代理的显式处理能力，避免把“协议存在”误写成“本次实测返回”：
+
+| SSE `type` | 主要顶层字段 | 当前处理方式 |
+|---|---|---|
+| `response.reasoning_summary_part.added` | `type`, `item_id?`, `output_index?`, `summary_index`, `sequence_number?` | Codex 建立一个 summary part；代理只计入 `events_seen`。 |
+| `response.reasoning_summary_text.delta` | `type`, `delta`, `item_id`, `output_index`, `summary_index`, `sequence_number` | Codex 消费摘要增量；代理拼接 `delta` 到 `response.reasoning`。 |
+| `response.reasoning_summary_text.done` | `type`, `text`, `item_id`, `output_index`, `summary_index`, `sequence_number` | Codex 消费完整摘要；代理当前不单独处理 done。 |
+| `response.reasoning_text.delta` | `type`, `delta`, `item_id`, `output_index`, `content_index`, `sequence_number` | Codex 消费明文 reasoning 增量；代理拼接 `delta` 到 `response.reasoning`。 |
+| `response.reasoning_text.done` | `type`, `text`, `item_id`, `output_index`, `content_index`, `sequence_number` | 协议可出现；当前代理不单独处理，当前 Codex SSE mapper 也未显式映射该 done 事件。原文仍保存在 `response_raw`。 |
+
+但两份 ChatGPT 样本均未出现任何可读 reasoning delta，而是直接在 `output_item.done` 返回加密 reasoning item：
+
+```json
+{
+  "id": "rs_...",
+  "type": "reasoning",
+  "content": [],
+  "encrypted_content": "opaque-encrypted-blob",
+  "internal_chat_message_metadata_passthrough": {"turn_id": "..."},
+  "summary": [],
+  "metadata": {"turn_id": "..."}
+}
+```
+
+因此样本中的 `response.reasoning=null` 只表示“代理没有拼到可读 reasoning delta”，不表示模型没有进行 reasoning。带工具调用的样本同时记录了 `usage.output_tokens_details.reasoning_tokens=12`。
+
+#### `response.output_item.done.item` 的三种核心结构
+
+| `item.type` | 关键字段 | 两份样本中的结果 |
+|---|---|---|
+| `reasoning` | `id`, `content`, `encrypted_content`, `summary`, `metadata` | 两份都有；content/summary 为空，encrypted content 非空。 |
+| `message` | `id`, `status`, `content`, `phase`, `role`, `metadata` | 普通调用样本有；`role=assistant`, `phase=final_answer`。 |
+| `function_call` | `id`, `status`, `arguments`, `call_id`, `name`, `metadata` | Lite 工具样本有；调用 `wait`，arguments 为 JSON 字符串。 |
+
+完成后的 assistant message 实际结构还包含 annotations/logprobs：
+
+```json
+{
+  "id": "msg_...",
+  "type": "message",
+  "status": "completed",
+  "content": [
+    {
+      "type": "output_text",
+      "annotations": [],
+      "logprobs": [],
+      "text": "..."
+    }
+  ],
+  "phase": "final_answer",
+  "role": "assistant",
+  "metadata": {"turn_id": "..."}
+}
+```
+
+#### `response.created/in_progress/completed.response` 的顶层字段
+
+两份样本中的 `response` 对象具有同一组顶层字段：
+
+| 字段组 | 实际字段 |
+|---|---|
+| 身份与状态 | `id`, `object`, `created_at`, `status`, `background`, `completed_at`, `error`, `incomplete_details` |
+| 模型与输入回显 | `model`, `instructions`, `tools`, `tool_choice`, `parallel_tool_calls`, `reasoning`, `text` |
+| 生成控制 | `max_output_tokens`, `max_tool_calls`, `temperature`, `top_p`, `frequency_penalty`, `presence_penalty`, `top_logprobs`, `truncation` |
+| 状态与缓存 | `previous_response_id`, `prompt_cache_key`, `prompt_cache_retention`, `store`, `service_tier` |
+| 安全与工具统计 | `moderation`, `safety_identifier`, `tool_usage` |
+| 输出与计费 | `output`, `usage` |
+| 其余透传 | `user`, `metadata` |
+
+其中 `response.completed.response.usage` 是归一化最重要的计量字段：
+
+```json
+{
+  "input_tokens": 39358,
+  "input_tokens_details": {
+    "cache_write_tokens": 0,
+    "cached_tokens": 38656
+  },
+  "output_tokens": 45,
+  "output_tokens_details": {
+    "reasoning_tokens": 12
+  },
+  "total_tokens": 39403
+}
+```
+
+注意，当前样本没有 `end_turn`；Codex 客户端允许该字段缺失并使用兜底结束逻辑，不能把它列成 ChatGPT 当前稳定返回字段。
+
+### 3.4 代理如何解析 SSE
+
+代理一边把上游 chunk 写回 Codex，一边把同一批字节复制到旁路 buffer。这样在线响应优先，采集不会阻塞 agent：
 
 - 转发失败：显式返回 `502 proxy_error`；
-- 捕获/落盘失败：响应已经返回给 Codex，只记录 `capture-ERROR`，不让观测故障拖垮 agent。
+- 捕获/落盘失败：响应已经返回给 Codex，只记录 `capture-ERROR`；
+- 不依赖响应 `Content-Type`，只要正文同时出现 `data:` 和 `response.` 就尝试重建 SSE。
 
-上游响应按内容而非 `Content-Type` 判断是否为 SSE，因为实际 endpoint 的响应头不一定声明 `text/event-stream`。只要正文同时出现 `data:` 和 `response.`，就尝试解析 Responses 事件。
+`reconstruct_responses_sse()` 当前执行四类操作：
 
-### 3.4 为什么要同时保存重建结果和 `response_raw`
+| wire 事件 | 解析动作 | 落盘位置 |
+|---|---|---|
+| 每个可解析的 `data:` JSON | `events_seen += 1` | `response.events_seen` |
+| `response.output_text.delta` | 拼接 `delta` | `response.text` |
+| `response.reasoning_summary_text.delta` / `response.reasoning_text.delta` | 拼接可读 delta | `response.reasoning` |
+| `response.output_item.done` | 收集完整 `item` | `response.output_items[]` |
+| `response.completed/incomplete/failed` | 保存其中的 `response` | `response.final_response` |
 
-Responses 是事件流，最终有用信息分散在不同事件中：
+`response.function_call_arguments.delta/done` 目前没有单独落成 sidecar；正常完成时不会丢失，因为完整 `arguments` 会再次出现在 `response.output_item.done.item` 中。若流在 item done 之前异常中断，只保留 `response_raw` 才能事后恢复已收到的参数 delta。
 
-- `response.output_text.delta`：正文增量；
-- `response.reasoning_summary_text.delta` / `response.reasoning_text.delta`：若服务端提供，则拼接 reasoning sidecar；
-- `response.output_item.done`：完整的 message、function call、reasoning item；
-- `response.completed` / `incomplete` / `failed`：最终 response、状态和 usage。
+### 3.5 为什么要同时保存重建结果和 `response_raw`
 
-当前 ChatGPT 后端的 `response.completed.response.output` 可能为空，因此代理使用 `response.output_item.done` 收集到的 `output_items` 回填。但它仍保留 `response_raw`，保证重建器即使漏识别新事件，也可以从原始 SSE 重放，而不是永久丢失。
+两份真实样本都验证了一个容易误读的现象：
 
-## 4. 原始捕获记录是什么样
+```text
+原始 response.created.response.output     = []
+原始 response.in_progress.response.output = []
+原始 response.completed.response.output   = []
+```
+
+完整输出实际分散在多个 `response.output_item.done` 中。代理先收集 `output_items`，再在 `final_response.output` 为空时回填：
+
+```text
+普通样本 output_items = [reasoning, message]
+工具样本 output_items = [reasoning, function_call]
+
+重建后 final_response.output = output_items
+```
+
+所以捕获文件里的 `response.final_response.output` 非空是**代理重建结果**，不能反推原始 `response.completed` 也携带了完整 output。`response_raw` 必须保留，保证重建器漏识别新事件、流提前断开或未来协议新增字段时仍能重放原始 wire。
+
+## 4. SSE 解析后落盘的字段
 
 每次 `/responses` 调用写成一行，按日期追加到：
 
@@ -536,7 +754,7 @@ Responses 是事件流，最终有用信息分散在不同事件中：
 $TRAJ_DATA_DIR/codex-api-calls/YYYY-MM-DD.jsonl.gz
 ```
 
-核心结构是：
+落盘记录不是 ChatGPT 原样返回的单个 response，而是“请求 + 原始 SSE + 代理重建视图”的组合：
 
 ```json
 {
@@ -552,15 +770,77 @@ $TRAJ_DATA_DIR/codex-api-calls/YYYY-MM-DD.jsonl.gz
     "reasoning": {}
   },
   "response": {
-    "final_response": {},
-    "text": "...",
+    "final_response": {
+      "id": "resp_...",
+      "status": "completed",
+      "model": "...",
+      "output": [
+        {"type": "reasoning", "encrypted_content": "..."},
+        {"type": "message", "role": "assistant", "content": []}
+      ],
+      "usage": {}
+    },
+    "text": "拼接后的 assistant 正文；工具调用轮可能为 null",
     "reasoning": null,
-    "output_items": [],
+    "output_items": [
+      {"type": "reasoning"},
+      {"type": "message 或 function_call"}
+    ],
     "events_seen": 123
   },
   "response_raw": "event: ...\ndata: ..."
 }
 ```
+
+#### 捕获记录顶层字段
+
+| 字段 | 来源 | 含义 |
+|---|---|---|
+| `ts` | 代理本机 | 完成该 API call 捕获时的 Unix timestamp。 |
+| `path` | HTTP request | 实际路径，例如 `/backend-api/codex/responses`。 |
+| `status` | HTTP response | 上游 HTTP 状态码。 |
+| `had_auth` | HTTP request header 检查 | 是否收到 Authorization header；只保存布尔值，不保存 token。 |
+| `request` | Codex request body | 完整 JSON 请求，包括 model、instructions/input、tools、reasoning 等。 |
+| `response` | 代理解析结果 | SSE 的结构化重建视图，子字段见下表。 |
+| `response_raw` | ChatGPT response body | 完整 SSE 原文，保留事件边界、delta、sequence number 和代理未识别字段。 |
+
+#### `response` 重建字段
+
+| 字段 | 类型 | 生成方式 | 注意事项 |
+|---|---|---|---|
+| `final_response` | object / null | 取最后一个 `response.completed/incomplete/failed` 的 `response` 对象 | 若其 `output` 为空，代理用收集到的 `output_items` 回填，因此它不是严格原样 wire 对象。 |
+| `text` | string / null | 顺序拼接所有 `response.output_text.delta.delta` | 工具调用轮没有 assistant 正文时为 `null`。 |
+| `reasoning` | string / null | 拼接可读 reasoning summary/text delta | 仅有 `encrypted_content` 时为 `null`，不能据此判断模型没有 reasoning。 |
+| `output_items` | array / null | 收集所有 `response.output_item.done.item` | 保存完整 reasoning、message、function call 等结构化输出。 |
+| `events_seen` | integer | 成功 JSON 解析的 `data:` 事件数 | 计数包括代理未专门处理、但成功解析的事件。 |
+
+#### `final_response.output` 与 `output_items` 的关系
+
+两者在当前 ChatGPT 捕获中通常内容相同，但来源不同：
+
+```mermaid
+flowchart LR
+    RAW["response_raw SSE"] --> DONE["逐个 output_item.done.item"]
+    DONE --> ITEMS["response.output_items[]"]
+    RAW --> TERM["response.completed.response<br/>原始 output=[]"]
+    TERM --> FINAL["response.final_response"]
+    ITEMS -->|"final_response.output 为空时回填"| FINAL
+```
+
+- 需要忠实审计 ChatGPT 原始返回：读取 `response_raw`；
+- 需要方便归一化本轮完成输出：读取 `response.final_response.output`；
+- 需要确认每个 item 来自哪个 done 事件：结合 `response_raw` 的 `output_index/sequence_number` 与 `response.output_items`。
+
+#### 普通文本轮与工具调用轮的落盘差异
+
+| 字段 | 普通文本样本 | Lite 工具调用样本 |
+|---|---|---|
+| `response.text` | assistant 正文 | `null` |
+| `response.reasoning` | `null`（仅密文） | `null`（仅密文） |
+| `response.output_items[0]` | encrypted reasoning | encrypted reasoning |
+| `response.output_items[1]` | assistant message | `function_call(name=wait)` |
+| 原始 completed `output` | `[]` | `[]` |
+| 重建 final response `output` | `[reasoning, message]` | `[reasoning, function_call]` |
 
 这里的粒度是 **per API call**：一个 `.jsonl.gz` 文件包含多次调用，每一行才是一条独立轨迹候选。文件边界只是日期/存储边界，不是会话边界。
 
@@ -735,8 +1015,20 @@ Responses Lite 则把 instructions 和 tools 都移进 `input`：
 1. 只从顶层 `request.instructions` 建 system message，所以 Lite 的 base instructions 不会被识别为 `subtype=base_instructions`；
 2. 只从顶层 `request.tools` 填充归一化 `tools`，所以 Lite 的 `additional_tools.tools` 会丢失；
 3. `_item_to_messages()` 不认识 `type=additional_tools`，会把它降为一个内容为空的 `role=system, subtype=additional_tools`，仅保留类型名，没有保留真正重要的 `tools` 数组；
-4. `fidelity.system_prompt` 和 `fidelity.tools_schema` 会被错误标成 `false`，即使这些信息实际上存在于 Lite input 中；
-5. 输出中没有 `wire_variant=responses_lite`，下游无法区分两种协议布局。
+4. `_item_to_messages()` 不认识 `custom_tool_call`，会把它降为空 system message，丢失 `name/input/call_id`；
+5. `_item_to_messages()` 不认识 `custom_tool_call_output`，会把它降为空 system message，丢失结构化或字符串 `output` 以及 `call_id`；
+6. `fidelity.system_prompt` 和 `fidelity.tools_schema` 会被错误标成 `false`，即使这些信息实际上存在于 Lite input 中；
+7. 输出中没有 `wire_variant=responses_lite`，下游无法区分两种协议布局。
+
+`codex_responses_lite_raw_with_tool_call_2026-07-15_redacted.json` 对问题 4、5 给出了真实证据：34 个 input items 中包含 8 个 `custom_tool_call` 和 8 个 `custom_tool_call_output`。当前 adapter 会把这 16 个 item 变成内容为空的 system 杂项，导致历史 exec 工具名、输入、输出以及调用关联全部丢失。本轮新产生的 `function_call(name=wait)` 能被当前 adapter 识别，但它所依赖的历史上下文已经失真。
+
+不同工具定义必须按不同 item 类型归一化：
+
+| tool 定义 | 模型调用 item | 执行结果 item | 归一化要求 |
+|---|---|---|---|
+| `type=function` | `function_call` | `function_call_output` | 解析 JSON 字符串 `arguments`，保留 `name/call_id`。 |
+| `type=custom` | `custom_tool_call` | `custom_tool_call_output` | 保留 freeform `input`，兼容 output 为字符串或 content-item 数组。 |
+| `type=namespace` | namespace 下的 function/custom call | 对应 output | 保留 namespace provenance，不能压平后产生同名冲突。 |
 
 注意，当前捕获文件不保存请求 header，所以 adapter 不能依赖 Lite header 做唯一判断。可以按结构识别：
 
@@ -752,8 +1044,9 @@ Responses Lite 则把 instructions 和 tools 都移进 `input`：
 - Lite 模式从 `additional_tools.tools` 恢复顶层归一化 `tools`；
 - 将紧随 `additional_tools` 的、由 Codex 注入的 developer base-instructions message 标记为 `subtype=base_instructions`；
 - 保留其原始 wire role，例如增加 `original_role="developer"`，避免为了 canonical role 丢 provenance；
+- 增加 `custom_tool_call/custom_tool_call_output` 映射，保留 `call_id` 闭环以及 output 的 string/array 原始形态；
 - fidelity 按恢复后的语义字段判断，而不是只检查标准 Responses 的顶层键；
-- 对 Lite、标准 Responses 和畸形/混合格式分别增加 adapter 测试。
+- 对 Lite、标准 Responses、function/custom tool 和畸形/混合格式分别增加 adapter 测试。
 
 #### 不足二：`role=developer` 只做了语法保留，没有做语义归一化
 
@@ -1055,9 +1348,12 @@ python3 trajectory_extract/codex_wire_adapter.py \
 | `message.content` 支持 input_text/input_image/output_text | `openai-codex/codex-rs/protocol/src/models.rs:843-858` |
 | Responses Lite 把 tools/base instructions 移入 developer input | `openai-codex/codex-rs/core/src/client.rs:834-863` |
 | Responses Lite 去除图片 detail | `openai-codex/codex-rs/core/src/client_common.rs:51-101` |
+| Codex 内部 Responses SSE 事件类型 | `openai-codex/codex-rs/codex-api/src/common.rs:73-121` |
+| Codex 对 output/reasoning/function-call SSE 的映射 | `openai-codex/codex-rs/codex-api/src/sse/responses.rs:326-469` |
 | 代理 SSE 重建 | `trajectory-collect/scripts/codex_capture_proxy.py:67-120` |
 | 代理透传、流式回包和旁路 buffer | `trajectory-collect/scripts/codex_capture_proxy.py:164-204` |
 | Responses item → message 映射 | `trajectory_extract/codex_wire_adapter.py:130-188` |
+| 当前 adapter 未实现 custom tool，未知类型降为空 system 杂项 | `trajectory_extract/codex_wire_adapter.py:158-188` |
 | 当前 adapter 只从顶层 instructions/tools 归一化 system/tool schema | `trajectory_extract/codex_wire_adapter.py:191-255` |
 | context/completion 切分及输出 schema | `trajectory_extract/codex_wire_adapter.py:191-255` |
 | 发布脱敏与权限控制 | `trajectory_extract/codex_wire_adapter.py:279-361` |
