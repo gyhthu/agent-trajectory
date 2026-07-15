@@ -1,0 +1,6 @@
+# 增量轨迹切分·要定时处理的飞书群清单（一行一个 group_id / chat_id）
+# - 以 # 开头的行、空行忽略；行内 # 后的内容当注释
+# - run_incremental_cron.sh 逐群跑 incremental_segment.py（封存老任务、只切活动尾巴）
+# - 要加群：在下面加一行 group_id 即可；要停某群：注释掉或删除该行
+# - bot（lian-server, cli_aa9678e4）必须在群里，否则飞书历史 API 拉不到该群消息
+oc_53b8b620867a189d8dfe502865dfccc5   # 陈康 x bot（当前数据处理协作群）

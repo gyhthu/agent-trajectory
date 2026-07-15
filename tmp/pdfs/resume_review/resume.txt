@@ -1,0 +1,132 @@
+
+===== PAGE 1 =====
+                                                                                  
+                                                                                  
+                                                                                  
+                                    高英华                                           
+                                                                                  
+                     出生年月：1995.09  ·  性别：男   ·  籍贯：吉林白城                           
+                   手机/微信：13825201493  ·  邮箱：1946107355@qq.com                     
+                                                                                  
+                                                                                  
+       教育背景                                                                       
+                                                                                  
+       清华大学，博士，计算机科学与技术系，导师：夏树涛教授                              2018.09-2024.01    
+       南开大学，本科,数学伯苓班，排名：3/32                                   2014.09-2018.06    
+                                                                                  
+       论文发表                                                                       
+                                                                                  
+       一作5篇，TH-CPLA类1篇，B类4篇                                                       
+       BackdoorAttackwithSparseandInvisibleTrigger                  TIFS,2024     
+       OntheEffectivenessofAdversarialTrainingagainstBackdoorAttacks TNNLS,2023   
+       NotAllSamplesAreBornEqual: TowardsEffectiveClean-LabelBackdoorAttacks PR,2023
+       DAG-GAN:CausalStructureLearningwithGenerativeAdversarialNets ICASSP,2021   
+                                                                                  
+       GeneralizedLocalAggregationforLargeScaleGaussianProcessRegression IJCNN,2020
+       非一作3篇，TH-CPLA类1篇，B类1篇                                                      
+       Node-LevelGraphRegressionWithDeepGaussianProcessModels        TAI,2023     
+       H-GPR:AHybridStrategyforlarge-scaleGaussianProcessRegression ICASSP,2021   
+                                                                                  
+       StochasticDeepGaussianProcessesoverGraphs                 NeurIPS,2020     
+       实习经历                                                                       
+                                                                                  
+       美团，外卖搜索广告算法组，机制设计                                       2023.06-2023.08    
+        • 基于迈尔森理论，提出一种新的保留价计算方式，取得约0.9%的线上收入提升                                    
+       清华大学天津高端装备研究院，暑期社会实践，断线检测                               2021.06-2021.08    
+                                                                                  
+        • 奔赴青岛工厂实地采集纺织机断线数据，利用深度学习目标检测算法提升自动化断线检测准确率                              
+       腾讯人工智能实验室，计算机视觉组，因果发现                                   2019.11-2020.07    
+                                                                                  
+        • 从分布优化的角度提出了一种基于生成对抗网络的因果结构学习范式，发表学术论文一篇                                 
+       工作经历                                                                       
+                                                                                  
+       华为技术有限公司       ICTBG｜云业务产品线｜行业大模型服务开发团队                    2025.06–至今      
+                                                                                  
+        • 医疗大模型｜主导华为云健康管理助手-多轮问诊模型的全流程优化                                          
+          – 项目背景：华为云在官网推出智慧医疗专区，其中健康管理助手产品设有智能问诊入口，用户可                            
+           针对病情与模型展开对话，8-10轮后模型给出初步诊断报告和就诊建议等                                     
+          – 系统提示词设计：涵盖角色设定、场景定义、轮数限制（8-10轮）、高频违规示例、强制自检等，                         
+           与评测团队针对badcase调优，将提示词能力压榨到极致，使基模型达到可用状态                                
+          – 后训练(SFT、AgenticRL)：设计基于疾病指南的多智能体数据合成框架，引入常见病聚类、患者                     
+           人格模拟和随机噪声模拟等多种数据合成技巧，通过SFT压缩思维链，并使模型学会基础问诊风                            
+           格；设计医疗问诊场景的rubrics合成管线，包含用户体验rubrics（共情、重复提问、幻觉等）和医                    
+           学专业性rubrics（高风险症状、家族史、鉴别诊断等），探索多种creditassignment(chain/tree-based     
+           rollout、token/step/outcome-levelreward/advantage等)技术在问诊场景中的表现          
+          – 项目成果：提升基模型表现15%，持平蚂蚁阿福-AI诊室表现，模型已上线华为云官网开启公测，                         
+           https://bbs.huaweicloud.com/forum/forum-0112720444698979715-1.html     
+                                                                                  
+        • 金融大模型｜负责金融垂域模型的训练和交付                                                    
+          – 项目背景：华为云与工行签订的项目要求基于Pangu38B基模型交付金融行业模型，提升金融通                         
+           用能力和风控场景表现，并在金融benchmark（如FinanceIQ等）上超过开源同尺寸竞品                        
+          – 后训练(SFT、RL)：筛选题库（去测试集、质检、topic相似度等），蒸馏补全思考过程；引入1Q                     
+           多A、选择题反事实增广、多轮提示等技巧；针对benchmark表现不佳的能力项数据做RL训练，                        
+           针对结果和思考过程设计多个reward提升模型推理能力，避免模型死记硬背                                   
+                                                                                  
+                                                                                  
+                                                                                  
+
+===== PAGE 2 =====
+                                                                                  
+                                                                                  
+                                                                                  
+          – 项目成果：满足项目要求交付工商银行，并上线工银智涌平台，开源benchmark加权分提升明显：                       
+           Pangu-Finance-NLP-N2-128k90.39、DeepseekR183.53、Qwen332B84.69，详细对比可见华为云官
+           网，https://www.huaweicloud.com/product/pangu/industry.html              
+       华为技术有限公司，2012实验室,可信院,应用安全技术实验室                           2024.02-2025.05   
+                                                                                  
+        • GUIAgent安全|开发Agent注入攻击检测安全护栏                                            
+          – 项目背景：终端小艺将推出可以操作手机的智能体，但是对Agent的安全隐患存在认知不足                            
+          – 端到端攻击验证：构建公司内部第一个针对          Agent 的注入攻击模式库，总结     10+ 有效攻击话术，        
+            在工程机完成端到端攻击验证                                                         
+          – 任务类prompt注入攻击检测安全护栏：设计快筛模块（Jaccard匹配、特征建模、贝叶斯分类等）                     
+            快速过滤白页面，满足时延要求；基于BERT设计注入攻击检测分类器，通过多阶段训练（对比                           
+            学习、标签修正等）降低误报率，满足交付指标                                                 
+                                                                                  
+          – 项目成果：实现检出率大于95%，误报率小于0.05%，技术原型已交付终端小艺，保障HDC大会                        
+            小艺智能体的安全发布                                                            
+       编程技能                                                                       
+                                                                                  
+       Python(Tensorflow,Pytorch),Java,C/C++,R,SQL,Scala,Git                      
+       所获荣誉                                                                       
+                                                                                  
+       院综合二等奖学金                                                       2021.09     
+       国家励志奖学金                                                  2015.09,2016.09   
+                                                                                  
+       全国大学生数学竞赛专业组三等奖                                                2015.09     
+       全国高中数学联赛省级一等奖                                                  2013.09     
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  
+                                                                                  

@@ -1,0 +1,422 @@
+[load] 全量事件 4217 条
+[route] 复用缓存 /opt/shared/data/task-trajectory/session_route_full.json
+[group] 41 个 session 有消息
+[resume] 已抽 0 个 session，续跑剩余
+[resume] 当前护栏重放后保留 0 条缓存纠错
+    [巨型session分24窗 → 74纠错]
+[③ 1/41] S1 (755条) → 30 纠错
+    [巨型session分16窗 → 22纠错]
+[③ 2/41] S2 (186条) → 8 纠错
+    [巨型session分22窗 → 59纠错]
+[③ 3/41] S3 (847条) → 33 纠错
+[③ 4/41] S4 (16条) → 0 纠错
+    [巨型session分1窗 → 3纠错]
+[③ 5/41] S5 (54条) → 2 纠错
+    [巨型session分2窗 → 5纠错]
+[③ 6/41] S6 (58条) → 3 纠错
+[③ 7/41] S7 (1条) → 0 纠错
+[③ 8/41] S8 (7条) → 0 纠错
+[③ 9/41] S9 (1条) → 0 纠错
+[③ 10/41] S10 (3条) → 0 纠错
+[③ 11/41] S11 (3条) → 0 纠错
+[③ 12/41] S12 (3条) → 0 纠错
+[③ 13/41] S13 (9条) → 0 纠错
+[③ 14/41] S14 (13条) → 2 纠错
+[③ 15/41] S15 (3条) → 0 纠错
+[③ 16/41] S16 (7条) → 0 纠错
+[③ 17/41] S17 (7条) → 0 纠错
+    [巨型session分3窗 → 8纠错]
+[③ 18/41] S18 (57条) → 3 纠错
+    [巨型session分1窗 → 3纠错]
+[③ 19/41] S19 (41条) → 0 纠错
+[load] 全量事件 4246 条
+[route] 缓存过期：assign覆盖到4216，当前事件4246条，重跑
+[route] 跑 route_day（4246 条，model=deepseek）…
+    [chat ok attempt=0]
+  [llm decided] #19 -> S1 (仍在讨论轨迹采集文档)
+    [chat ok attempt=0]
+  [llm decided] #29 -> S2 (新目标：轨迹劫持保存)
+    [chat ok attempt=0]
+  [llm decided] #35 -> S2 (延续文档参照任务)
+    [chat ok attempt=0]
+  [llm decided] #40 -> S1 (延续codex轨迹劫持验证)
+    [chat ok attempt=0]
+  [llm decided] #85 -> S3 (新目标：教登录评测平台)
+    [chat ok attempt=0]
+  [llm decided] #112 -> S4 (新目标：跨平台脚本)
+    [chat ok attempt=0]
+  [llm decided] #126 -> S3 (仍在处理账号隔离问题)
+    [chat ok attempt=0]
+  [llm decided] #139 -> S1 (延续轨迹保存主题)
+    [chat ok attempt=0]
+  [llm decided] #142 -> S3 (延续登录评测平台看数据)
+    [chat ok attempt=0]
+  [llm decided] #145 -> S3 (提供SSH公钥用于登录评测平台)
+    [chat ok attempt=0]
+  [llm decided] #148 -> S5 (新指令停止现有任务)
+    [chat ok attempt=0]
+  [llm decided] #150 -> S1 (延续SSH配置相关会话)
+    [chat ok attempt=0]
+  [llm decided] #151 -> S3 (延续教耀明登录评测平台)
+    [chat ok attempt=0]
+  [llm decided] #153 -> S6 (新请求与已开session无关)
+    [chat ok attempt=0]
+  [llm decided] #154 -> S3 (延续登录评测平台看数据)
+    [chat ok attempt=0]
+  [llm decided] #175 -> S3 (验证登录评测平台)
+    [chat ok attempt=0]
+  [llm decided] #181 -> S3 (延续教耀明登录评测平台的session)
+    [chat ok attempt=0]
+  [llm decided] #202 -> S2 (讨论飞书文档相关操作)
+    [chat ok attempt=0]
+  [llm decided] #208 -> S7 (新问候，无关联)
+    [chat ok attempt=0]
+  [llm decided] #212 -> S3 (延续登录评测平台看数据)
+    [chat ok attempt=0]
+  [llm decided] #215 -> S8 (新打招呼)
+    [chat ok attempt=0]
+  [llm decided] #219 -> S9 (用户请求不明确)
+    [chat ok attempt=0]
+  [llm decided] #230 -> S8 (延续之前的hi对话)
+    [chat ok attempt=0]
+  [llm decided] #236 -> S3 (延续耀明登录评测平台看数据)
+    [chat ok attempt=0]
+  [llm decided] #241 -> S3 (延续耀明登录评测平台问题)
+    [chat ok attempt=0]
+  [llm decided] #256 -> S8 (延续之前的打招呼)
+    [chat ok attempt=0]
+  [llm decided] #269 -> S10 (新问候)
+    [chat ok attempt=0]
+  [llm decided] #277 -> S5 (延续 stop 1 的 session)
+    [chat ok attempt=0]
+  [llm decided] #282 -> S10 (延续已开问候会话)
+    [chat ok attempt=0]
+  [llm decided] #290 -> S11 (新打招呼)
+    [chat ok attempt=0]
+  [llm decided] #334 -> S4 (延续脚本相关任务)
+    [chat ok attempt=0]
+  [llm decided] #343 -> S2 (询问文档中的名词)
+    [chat ok attempt=0]
+  [llm decided] #429 -> S7 (重复问候)
+    [chat ok attempt=0]
+  [llm decided] #439 -> S5 (重复已有stop指令)
+    [chat ok attempt=0]
+  [llm decided] #453 -> S11 (重复问候)
+    [chat ok attempt=0]
+  [llm decided] #508 -> S12 (新请求与现有session无关)
+    [chat ok attempt=0]
+  [llm decided] #514 -> S12 (延续验证app_id的对话)
+    [chat ok attempt=0]
+  [llm decided] #527 -> S13 (新问题关于mention未生效)
+    [chat ok attempt=0]
+  [llm decided] #584 -> S1 (延续antigravity轨迹话题)
+    [chat ok attempt=0]
+  [llm decided] #588 -> S1 (延续 antigravity 轨迹工具化)
+    [chat ok attempt=0]
+  [llm decided] #606 -> S1 (延续轨迹保存主题)
+    [chat ok attempt=0]
+  [llm decided] #628 -> S3 (延续评测平台数据相关讨论)
+    [chat ok attempt=0]
+  [llm decided] #631 -> S1 (延续模型能力讨论)
+    [chat ok attempt=0]
+  [llm decided] #641 -> S1 (延续轨迹保存相关讨论)
+    [chat ok attempt=0]
+  [llm decided] #647 -> S1 (延续轨迹保存话题)
+    [chat ok attempt=0]
+  [llm decided] #694 -> S14 (新用户新请求)
+    [chat ok attempt=0]
+  [llm decided] #697 -> S15 (新命令请求)
+    [chat ok attempt=0]
+  [llm decided] #698 -> S15 (延续之前的命令请求)
+    [chat ok attempt=0]
+  [llm decided] #700 -> S16 (新用户询问状态)
+    [chat ok attempt=0]
+  [llm decided] #704 -> S15 (延续ctx命令相关讨论)
+    [chat ok attempt=0]
+  [llm decided] #706 -> S16 (追问之前的问题)
+    [chat ok attempt=0]
+  [llm decided] #724 -> S3 (延续评测平台看数据话题)
+    [chat ok attempt=0]
+  [llm decided] #763 -> S17 (新目标：讨论数据筛选策略)
+    [chat ok attempt=0]
+  [llm decided] #775 -> S18 (新目标：代码仓库迁移)
+    [chat ok attempt=0]
+  [llm decided] #900 -> S1 (延续轨迹保存方法讨论)
+    [chat ok attempt=0]
+  [llm decided] #903 -> S2 (延续飞书文档相关讨论)
+    [chat ok attempt=0]
+  [llm decided] #904 -> S1 (延续劫持轨迹文档主题)
+    [chat ok attempt=0]
+  [llm decided] #941 -> S14 (重复请求帮助)
+    [chat ok attempt=0]
+  [llm decided] #968 -> S19 (新命令请求)
+    [chat ok attempt=0]
+  [llm decided] #970 -> S6 (延续图片相关讨论)
+    [chat ok attempt=0]
+  [llm decided] #979 -> S20 (新情绪发泄)
+    [chat ok attempt=0]
+  [llm decided] #984 -> S20 (延续当前对话)
+    [chat ok attempt=0]
+  [llm decided] #986 -> S21 (新指令)
+    [chat ok attempt=0]
+  [llm decided] #1042 -> S17 (延续高质量数据筛选讨论)
+    [chat ok attempt=0]
+  [llm decided] #1062 -> S22 (新任务：接手lian-server工作)
+    [chat ok attempt=0]
+  [llm decided] #1068 -> S22 (延续处理lian-server问题)
+    [chat ok attempt=0]
+  [llm decided] #1083 -> S22 (延续服务器问题处理)
+    [chat ok attempt=0]
+  [llm decided] #1084 -> S22 (延续lian-server问题处理)
+    [chat ok attempt=0]
+  [llm decided] #1085 -> S22 (延续讨论lian-server问题)
+    [chat ok attempt=0]
+  [llm decided] #1086 -> S22 (延续讨论lian-server问题)
+    [chat ok attempt=0]
+  [llm decided] #1093 -> S23 (新目标：写helloworld)
+    [chat ok attempt=0]
+  [llm decided] #1144 -> S3 (延续评测平台登录任务)
+    [chat ok attempt=0]
+  [llm decided] #1174 -> S24 (新目标：调研功能建议)
+    [chat ok attempt=0]
+  [llm decided] #1206 -> S25 (新目标：计算1+1)
+    [chat ok attempt=0]
+  [llm decided] #1218 -> S3 (延续评测平台相关讨论)
+    [chat ok attempt=0]
+  [llm decided] #1253 -> S22 (延续 lian-server 问题分析)
+    [chat ok attempt=0]
+  [llm decided] #1276 -> S22 (延续lian-server问题处理)
+    [chat ok attempt=0]
+  [llm decided] #1303 -> S17 (延续高质量数据筛选任务)
+    [chat ok attempt=0]
+  [llm decided] #1314 -> S22 (延续服务器运维任务)
+    [chat ok attempt=0]
+  [llm decided] #1316 -> S22 (延续lian-server问题处理)
+    [chat ok attempt=0]
+  [llm decided] #1320 -> S22 (延续lian-server问题处理)
+    [chat ok attempt=0]
+  [llm decided] #1582 -> S22 (延续lian-server相关工作)
+    [chat ok attempt=0]
+  [llm decided] #1603 -> S23 (延续询问状态)
+    [chat ok attempt=0]
+  [llm decided] #1656 -> S1 (围绕文档内容追问)
+    [chat ok attempt=0]
+  [llm decided] #1666 -> S22 (延续lian-server的工作)
+    [chat ok attempt=0]
+  [llm decided] #1671 -> S22 (延续接替lian-server的工作)
+    [chat ok attempt=0]
+  [llm decided] #2142 -> S26 (提出新的轨迹切分方案)
+    [chat ok attempt=0]
+  [llm decided] #2176 -> S2 (追问文档相关内容)
+    [chat ok attempt=0]
+  [llm decided] #2183 -> S22 (延续 lian-server 问题处理)
+    [chat ok attempt=0]
+  [llm decided] #2193 -> S1 (延续轨迹保存主题)
+    [chat ok attempt=0]
+  [llm decided] #2199 -> S27 (提出新的训练模型方案)
+    [chat ok attempt=0]
+  [llm decided] #2206 -> S17 (延续高质量数据筛选讨论)
+    [chat ok attempt=0]
+  [llm decided] #2248 -> S17 (延续数据筛选与改写任务)
+    [chat ok attempt=0]
+  [llm decided] #2251 -> S28 (新问题：采集欠账原因)
+    [chat ok attempt=0]
+  [llm decided] #2256 -> S22 (延续lian-server相关工作)
+    [chat ok attempt=0]
+  [llm decided] #2275 -> S22 (延续 lian-server 问题排查)
+    [chat ok attempt=0]
+  [llm decided] #2288 -> S5 (延续之前的stop指令)
+    [chat ok attempt=0]
+  [llm decided] #2290 -> S29 (无明确延续目标)
+    [chat ok attempt=0]
+  [llm decided] #2344 -> S22 (延续处理lian-server问题)
+    [chat ok attempt=0]
+  [llm decided] #2382 -> S1 (延续prompt改写测试主题)
+    [chat ok attempt=0]
+  [llm decided] #2506 -> S1 (延续对比示例的讨论)
+    [chat ok attempt=0]
+  [llm decided] #2598 -> S3 (延续评测平台数据查看的讨论)
+    [chat ok attempt=0]
+  [llm decided] #2775 -> S1 (延续轨迹保存相关讨论)
+    [chat ok attempt=0]
+  [llm decided] #2989 -> S30 (新图片请求，与现有会话无关)
+    [chat ok attempt=0]
+  [llm decided] #3146 -> S1 (追问轨迹保存细节)
+    [chat ok attempt=0]
+  [llm decided] #3262 -> S22 (延续 lian-server 问题处理)
+    [chat ok attempt=0]
+  [llm decided] #3270 -> S4 (延续脚本格式问题讨论)
+    [chat ok attempt=0]
+  [llm decided] #3274 -> S31 (新目标：切换模型)
+    [chat ok attempt=0]
+  [llm decided] #3475 -> S3 (延续评测平台数据相关讨论)
+    [chat ok attempt=0]
+  [llm decided] #3595 -> S32 (新文件讨论)
+    [chat ok attempt=0]
+  [llm decided] #3618 -> S33 (新话题：codex限额)
+    [chat ok attempt=0]
+  [llm decided] #3621 -> S34 (询问新问题，与之前无关)
+    [chat ok attempt=0]
+  [llm decided] #3822 -> S3 (延续还原prompt的主线任务)
+    [chat ok attempt=0]
+  [llm decided] #4058 -> S3 (延续耀明登录评测平台看数据)
+    [chat ok attempt=0]
+  [llm decided] #4061 -> S3 (延续张耀明登录评测平台看数据)
+    [chat ok attempt=0]
+  [llm decided] #4064 -> S3 (延续讨论agent轨迹文档)
+    [chat ok attempt=0]
+  [llm decided] #4067 -> S26 (延续轨迹切分讨论)
+    [chat ok attempt=0]
+  [llm decided] #4070 -> S1 (延续轨迹保存相关讨论)
+    [chat ok attempt=0]
+  [llm decided] #4073 -> S5 (延续之前的stop指令)
+    [chat ok attempt=0]
+  [llm decided] #4075 -> S1 (延续轨迹保存相关讨论)
+    [chat ok attempt=0]
+  [llm decided] #4078 -> S1 (延续关于轨迹保存的讨论)
+    [chat ok attempt=0]
+  [llm decided] #4081 -> S34 (继续讨论role格式问题)
+    [chat ok attempt=0]
+  [llm decided] #4084 -> S1 (延续讨论claude机制)
+    [chat ok attempt=0]
+  [llm decided] #4087 -> S35 (新目标：解释归一化原因)
+    [chat ok attempt=0]
+  [llm decided] #4090 -> S35 (继续讨论归一化数据问题)
+    [chat ok attempt=0]
+  [llm decided] #4093 -> S35 (继续讨论归一化和system字段问题)
+    [chat ok attempt=0]
+  [llm decided] #4096 -> S35 (继续讨论归一化与system字段)
+    [chat ok attempt=0]
+  [llm decided] #4099 -> S35 (继续讨论归一化和system处理)
+    [chat ok attempt=0]
+  [llm decided] #4102 -> S1 (延续 wire 透传旁路讨论)
+    [chat ok attempt=0]
+  [llm decided] #4105 -> S1 (延续讨论system prompt)
+    [chat ok attempt=0]
+  [llm decided] #4108 -> S35 (延续归一化轨迹适配器讨论)
+    [chat ok attempt=0]
+  [llm decided] #4111 -> S1 (延续讨论黑盒问题)
+    [chat ok attempt=0]
+  [llm decided] #4114 -> S35 (继续讨论归一化和模型验证)
+    [chat ok attempt=0]
+  [llm decided] #4117 -> S34 (讨论模型与审计层关系)
+    [chat ok attempt=0]
+  [llm decided] #4120 -> S1 (延续关于claude code和agent的讨论)
+    [chat ok attempt=0]
+  [llm decided] #4123 -> S26 (讨论轨迹切分机制)
+    [chat ok attempt=0]
+  [llm decided] #4126 -> S27 (延续讨论轨迹边界定义)
+    [chat ok attempt=0]
+  [llm decided] #4129 -> S3 (延续总结对话内容)
+    [chat ok attempt=0]
+  [llm decided] #4133 -> S3 (延续总结评测平台数据的session)
+    [chat ok attempt=0]
+  [llm decided] #4136 -> S22 (延续处理群文件总结任务)
+    [chat ok attempt=0]
+  [llm decided] #4140 -> S22 (延续 lian-server 问题处理)
+    [chat ok attempt=0]
+  [llm decided] #4143 -> S22 (延续 lian-server 问题处理)
+    [chat ok attempt=0]
+  [llm decided] #4146 -> S35 (延续agent轨迹讨论)
+    [chat ok attempt=0]
+  [llm decided] #4149 -> S24 (延续agent轨迹相关讨论)
+    [chat ok attempt=0]
+  [llm decided] #4152 -> S22 (延续服务器问题排查)
+    [chat ok attempt=0]
+  [llm decided] #4155 -> S36 (用户主动结束当前话题)
+    [chat ok attempt=0]
+  [llm decided] #4158 -> S22 (延续服务器问题处理)
+    [chat ok attempt=0]
+  [llm decided] #4217 -> S22 (延续 lian-server 问题讨论)
+    [chat ok attempt=0]
+  [llm decided] #4218 -> S35 (延续归一化轨迹讨论)
+    [chat ok attempt=0]
+  [llm decided] #4221 -> S35 (延续归一化主题)
+    [chat ok attempt=0]
+  [llm decided] #4223 -> S3 (延续登录评测平台看数据的会话)
+    [chat ok attempt=0]
+  [llm decided] #4224 -> S3 (延续登录评测平台看数据的session)
+    [chat ok attempt=0]
+  [llm decided] #4226 -> S3 (延续登录评测平台看数据)
+    [chat ok attempt=0]
+  [llm decided] #4229 -> S3 (延续登录评测平台看数据的会话)
+    [chat ok attempt=0]
+  [llm decided] #4230 -> S3 (延续教耀明登录评测平台)
+    [chat ok attempt=0]
+  [llm decided] #4231 -> S3 (延续教登录评测平台看数据)
+    [chat ok attempt=0]
+  [llm decided] #4234 -> S3 (延续教登录评测平台的session)
+    [chat ok attempt=0]
+  [llm decided] #4235 -> S3 (延续登录评测平台看数据)
+[route] 完成：36 个 session → 缓存 /opt/shared/data/task-trajectory/session_route_full.json
+[group] 36 个 session 有消息
+[resume] 已抽 19 个 session，续跑剩余
+[resume] 当前护栏重放后保留 65 条缓存纠错
+[③ 20/36] S20 (7条) → 0 纠错
+[③ 21/36] S21 (2条) → 0 纠错
+[load] 全量事件 4246 条
+[route] 复用缓存 /opt/shared/data/task-trajectory/session_route_full.json
+[group] 36 个 session 有消息
+[resume] 已抽 21 个 session，续跑剩余
+[resume] 当前护栏重放后保留 65 条缓存纠错
+[load] 全量事件 4246 条
+[route] 复用缓存 /opt/shared/data/task-trajectory/session_route_full.json
+[group] 36 个 session 有消息
+[resume] 已抽 22 个 session，续跑剩余
+[resume] 当前护栏重放后保留 65 条缓存纠错
+    [巨型session分4窗 → 11纠错]
+[③ 23/36] S23 (88条) → 4 纠错
+[③ 24/36] S24 (13条) → 1 纠错
+[③ 25/36] S25 (12条) → 0 纠错
+    [巨型session分2窗 → 4纠错]
+[③ 26/36] S26 (40条) → 1 纠错
+    [巨型session分2窗 → 6纠错]
+[③ 27/36] S27 (53条) → 1 纠错
+[③ 28/36] S28 (6条) → 0 纠错
+[③ 29/36] S29 (1条) → 0 纠错
+    [巨型session分5窗 → 15纠错]
+[③ 30/36] S30 (157条) → 8 纠错
+[③ 31/36] S31 (2条) → 0 纠错
+[③ 32/36] S32 (5条) → 0 纠错
+[③ 33/36] S33 (3条) → 0 纠错
+[load] 全量事件 4246 条
+[route] 复用缓存 /opt/shared/data/task-trajectory/session_route_full.json
+[group] 36 个 session 有消息
+[resume] 已抽 33 个 session，续跑剩余
+[resume] 当前护栏重放后保留 80 条缓存纠错
+    [巨型session分5窗 → 18纠错]
+[③ 34/36] S34 (207条) → 12 纠错
+[③ 35/36] S35 (29条) → 2 纠错
+[③ 36/36] S36 (3条) → 0 纠错
+[③.5 对抗核验] 94 → 40（判掉 54）
+
+🛡️ 机器护栏丢弃 23 条（→ /opt/shared/data/task-trajectory/session_corrections_guard_dropped.jsonl）：
+   ×15  anchor不在消息集
+   ×4  corrector不晚于anchor
+   ×1  corrector_msg_id缺失/不在消息集
+   ×1  corrector是占位/系统回执
+   ×1  corrector作者非真人
+   ×1  bot_error_quote不在anchor原文
+
+🔎 对抗核验判掉 54 条（→ /opt/shared/data/task-trajectory/session_corrections_verify_dropped.jsonl）：
+   ×54  对抗核验NO
+
+============================================================
+session 总数        : 36
+逐 session 抽出纠错 : 40（含重复 anchor，已过护栏）
+★ 去重后纠错事件数  : 40  → /opt/shared/data/task-trajectory/session_corrections.jsonl
+============================================================
+  vs 旧blob-35: 交集 1 / blob独有 34 / session新增 39
+  vs 新blob-51: 交集 4 / blob独有 45 / session新增 36
+[load] 全量事件 4246 条
+[route] 复用缓存 /opt/shared/data/task-trajectory/session_route_full.json
+[group] 36 个 session 有消息
+[resume] 已抽 35 个 session，续跑剩余
+[resume] 当前护栏重放后保留 94 条缓存纠错
+[load] 全量事件 4246 条
+[route] 复用缓存 /opt/shared/data/task-trajectory/session_route_full.json
+[group] 36 个 session 有消息
+[resume] 已抽 35 个 session，续跑剩余
+[resume] 当前护栏重放后保留 94 条缓存纠错
+    [巨型session分9窗 → 54纠错]
+[③ 22/36] S22 (1016条) → 19 纠错

@@ -1,0 +1,19 @@
+[2026-06-29T08:15:34Z] 开始增量切分，共 1 个群
+[2026-06-29T08:15:34Z] === 群 oc_53b8b620867a189d8dfe502865dfccc5 ===
+{
+  "changed": true,
+  "mode": "incremental",
+  "new_events": 10,
+  "active_events": 884,
+  "hard_frozen": 4,
+  "reopened": 1,
+  "active_tasks": 4,
+  "subtasks": 31,
+  "state_path": "/opt/shared/data/task-trajectory/state/oc_53b8b620867a189d8dfe502865dfccc5.json",
+  "segment_path": "/opt/shared/data/task-trajectory/llmsegment_incremental_oc_53b8b_0629_081933.md",
+  "decompose_path": "/opt/shared/data/task-trajectory/llmdecompose_incremental_oc_53b8b_0629_081933.md"
+}
+查看：http://127.0.0.1:5175/tools?tab=data-view
+[2026-06-29T08:19:33Z] ✅ oc_53b8b620867a189d8dfe502865dfccc5 完成
+[2026-06-29T08:19:33Z] 全部跑完，均成功
+[2026-06-29T08:19:33Z] 📋 任务面板已刷新：/opt/shared/data/task-trajectory/task_panel.md

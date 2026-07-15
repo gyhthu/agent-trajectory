@@ -1,0 +1,315 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "subtask_trajectory.schema.json",
+  "title": "SubtaskTrajectory",
+  "description": "一条子任务训练样本 = 群聊层切分(llm_decompose) × 轨迹层 steps(trajectory_aggregate) 的 join。本期单 bot 主干 MVP：身份/溯源 + quality_tier + outcome(复用 llm_decompose status，failure 由 judge 补) + hard_example + steps(按工具调用聚合+loss_mask)；orchestration / implicit_feedback / step_reward 留占位。设计依据：Agent 轨迹工程全链路整合综述 §5.1（加工侧字段对齐利用侧消费接口）。",
+  "type": "object",
+  "required": [
+    "subtask_id",
+    "source_task_id",
+    "group_id",
+    "span",
+    "msg_ids",
+    "quality_tier",
+    "outcome",
+    "steps"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "subtask_id": {
+      "type": "string",
+      "description": "全局唯一，建议 <source_task_id>#<seq>"
+    },
+    "source_task_id": {
+      "type": "string",
+      "description": "来自哪个原始粘连大任务（task_resegment/llm_decompose 输入的 task）"
+    },
+    "group_id": {
+      "type": "string"
+    },
+    "span": {
+      "type": "object",
+      "required": [
+        "start",
+        "end"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "type": "integer",
+          "description": "起始 epoch 秒"
+        },
+        "end": {
+          "type": "integer",
+          "description": "结束 epoch 秒"
+        }
+      }
+    },
+    "msg_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "本段覆盖的原始消息 id —— 「连续+全覆盖+不重叠」不变量的物证；组装时须通过 verify_partition 校验。"
+    },
+    "topic_label": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "participants": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "本段出现的 bot/人"
+    },
+    "multi_agent": {
+      "type": "boolean",
+      "default": false,
+      "description": "【决策3】participants 含多个 bot 时为 true；本期单 bot 主干对 true 的段跳过深加工（仅切边界，不组装 steps/orchestration）"
+    },
+    "quality_tier": {
+      "enum": [
+        "reasoning_sup",
+        "behavior_clone",
+        "recall_only"
+      ],
+      "description": "质量分层，决定进哪个训练阶段：带可信 CoT→reasoning_sup；仅可行为克隆→behavior_clone；仅可召回→recall_only"
+    },
+    "outcome": {
+      "enum": [
+        "success",
+        "failure",
+        "corrected",
+        "unknown",
+        "incomplete"
+      ],
+      "description": "【决策1】LLM-as-judge 产。复用 llm_decompose.status 映射：一遍过→success / 有返工→success / 被纠偏→corrected；failure（最终没做对）llm_decompose 口径不含，由 judge 补判。"
+    },
+    "outcome_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "judge 给的简短理由（可审计）；含 llm_decompose.status 与 failure_judge.verdict 两路来源"
+    },
+    "interaction_cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "「少需求次数达成」指标（确定性，非 LLM）。retry_rounds 是上界近似（用户追加里可能含纯补充信息）。",
+      "properties": {
+        "user_turns": {
+          "type": "integer",
+          "description": "本子需求里用户开口的消息条数"
+        },
+        "retry_rounds": {
+          "type": "integer",
+          "description": "max(0, user_turns-1)：首次提需求之外的轮数"
+        }
+      }
+    },
+    "hard_example": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "is_hard": {
+          "type": "boolean"
+        },
+        "type": {
+          "enum": [
+            "tool_error_recovery",
+            "multi_retry",
+            "rollback_corrected",
+            "none"
+          ],
+          "description": "难例类型；rollback_corrected 直接来自 llm_decompose 的 status=被纠偏/enforce_rollback_purity 拆出的回退段"
+        },
+        "error_step_idx": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "【iStar 消费】被纠正/出错的 step idx，由 judge 顺带定位"
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "description": "【决策2】按工具调用聚合后的 step 序列，来自轨迹层 trajectory_aggregate。",
+      "items": {
+        "type": "object",
+        "required": [
+          "idx",
+          "type",
+          "actor",
+          "loss_mask"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "idx": {
+            "type": "integer"
+          },
+          "type": {
+            "enum": [
+              "plain_message",
+              "tool_interaction"
+            ],
+            "description": "plain_message=纯对话轮；tool_interaction=assistant 的 tool_call + 紧随的 tool_result 聚成一条"
+          },
+          "actor": {
+            "type": "string",
+            "description": "bot_id 或 'user'"
+          },
+          "action": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "助手产出（计损=1 的部分）",
+            "additionalProperties": false,
+            "properties": {
+              "text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reasoning": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "CoT，若可信则 quality_tier 可达 reasoning_sup"
+              },
+              "tool_call": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "args": {}
+                }
+              }
+            }
+          },
+          "observation": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "环境返回（计损=0，仅作上下文）",
+            "additionalProperties": false,
+            "properties": {
+              "tool_result": {},
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "工具报错类别；非空 → 可触发 hard_example.tool_error_recovery"
+              }
+            }
+          },
+          "loss_mask": {
+            "enum": [
+              0,
+              1
+            ],
+            "description": "【agentic-RL 精读】action(助手产出)=1 计损、observation(环境返回)/user=0"
+          },
+          "step_reward": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "default": null,
+            "description": "占位：训练时 iStar 导出的 step-level 过程奖励后填"
+          }
+        }
+      }
+    },
+    "orchestration": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "default": null,
+      "description": "【决策3：本期 reserved，恒 null】多 bot 协作段的编排拓扑，单 bot 主干跑通后再启用。",
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "bot_id": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from_step": {
+                "type": "integer"
+              },
+              "to_step": {
+                "type": "integer"
+              },
+              "type": {
+                "enum": [
+                  "data_dep",
+                  "control_dep"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "implicit_feedback": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "default": null,
+      "description": "【决策4：留占位，采集管道本期不动】将来采集侧补 git diff / 测试 / review 采纳-回滚。",
+      "additionalProperties": false,
+      "properties": {
+        "file_changes": {
+          "type": "array"
+        },
+        "tests": {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "integer"
+            },
+            "failed": {
+              "type": "integer"
+            }
+          }
+        },
+        "review": {
+          "enum": [
+            "accepted",
+            "reverted",
+            "none"
+          ]
+        }
+      }
+    }
+  }
+}

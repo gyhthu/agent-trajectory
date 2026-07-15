@@ -1,0 +1,11 @@
+{
+  "expected_classifications": {
+    "1": "missed",
+    "2": "candidate_pool_only",
+    "3": "bot_error_recalled_without_gold_corrector",
+    "11": "missed",
+    "13": "t0_mismatch",
+    "103": "candidate_pool_only",
+    "110": "bot_error_recalled_without_gold_corrector"
+  }
+}
