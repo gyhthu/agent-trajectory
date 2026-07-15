@@ -943,7 +943,7 @@ messages[completion_start_index:]   = 本次模型产生的 completion / target
 
 ### 5.6 剥离 reasoning，而不是伪造或错误训练
 
-Codex wire 中可能出现 `type=reasoning`，但当前实测形态是空 summary/content 加加密内容。适配器的策略是：
+ChatGPT 的两份当前实测样本中，`type=reasoning` 都是空 summary/content 加 encrypted content。适配器的现有策略是：
 
 1. 不把密文塞进 `messages`；
 2. 不尝试把密文当可读 CoT；
@@ -951,6 +951,8 @@ Codex wire 中可能出现 `type=reasoning`，但当前实测形态是空 summar
 4. 只累计 `n_reasoning_stripped`，给下游保留“这里原本存在 reasoning item”的事实。
 
 所以这套数据适合学习 Codex 的**可观察行为**：回复、工具选择、参数和工具结果衔接；它不适合宣称提供了原始思维链监督。
+
+这条策略只对“ChatGPT 返回 encrypted-only reasoning”的当前样本成立，不能推广成“所有 provider 的 reasoning 都不可读”。自部署 Qwen 等兼容服务可能在标准 Responses `reasoning.content[].reasoning_text` 中返回明文；当前 adapter 仍会无条件删除，详见不足三。
 
 ### 5.7 发布前的脱敏是 fail-loud
 
@@ -963,7 +965,7 @@ Codex wire 中可能出现 `type=reasoning`，但当前实测形态是空 summar
 
 `tools` schema 被排除在字符串 scrub 之外，以避免固定字段名/描述被误伤；这依赖“工具模板本身不含秘密”的前提，若未来工具描述动态注入租户数据，需要重新评估。
 
-### 5.8 当前归一化的两个已确认不足
+### 5.8 当前归一化的三个已确认不足
 
 #### 不足一：没有识别 Responses Lite wire 变体
 
@@ -1103,7 +1105,85 @@ Responses Lite 则把 instructions 和 tools 都移进 `input`：
 
 如果目标训练格式原生支持 developer role，应保持 `role=developer`；如果目标格式只支持 system/user/assistant/tool，再在最终导出层做有记录的映射，而不是在 wire adapter 层无痕合并。无法可靠判断 subtype 时应标为 `developer_unknown`，不能仅凭文本猜成 base instructions。
 
-因此，这两个不足实际上互相关联：**Responses Lite 把原本位于顶层的 system/tools 搬进了 developer input，而当前 adapter 既不识别 Lite，也没有足够细的 developer 语义模型。**
+因此，前两个不足实际上互相关联：**Responses Lite 把原本位于顶层的 system/tools 搬进了 developer input，而当前 adapter 既不识别 Lite，也没有足够细的 developer 语义模型。**
+
+#### 不足三：自定义模型的明文 reasoning 会被无条件删除
+
+当前 `_item_to_messages()` 没有检查 reasoning item 的实际内容，而是对所有 `type=reasoning` 执行同一逻辑：
+
+```python
+if t == "reasoning":
+    stripped_counter[0] += 1
+    return []
+```
+
+这对 ChatGPT 当前 encrypted-only 样本是合理的安全默认值，但接入自部署 Qwen、gpt-oss 或其他兼容模型后可能造成真实数据丢失。例如服务端可以按标准 Responses 结构返回：
+
+```json
+{
+  "id": "rs_...",
+  "type": "reasoning",
+  "content": [
+    {
+      "type": "reasoning_text",
+      "text": "先检查仓库结构，再定位失败测试。"
+    }
+  ],
+  "summary": [],
+  "encrypted_content": null
+}
+```
+
+当前 adapter 会把这段可读文本和密文 item 一样整项删除，并错误增加 `n_reasoning_stripped`。此外，捕获代理已经会将 `response.reasoning_text.delta` 和 `response.reasoning_summary_text.delta` 拼入 `response.reasoning` sidecar，但 `adapt_call()` 当前完全不读取该字段，所以即使 SSE 中出现明文也无法进入归一化结果。
+
+需要区分三种不同语义，不能都叫“reasoning 文本”：
+
+| wire 来源 | 实际语义 | 建议处理 |
+|---|---|---|
+| `reasoning.content[].type=reasoning_text` | 模型公开的原始/明文 reasoning | 保留，标记 `reasoning_kind=raw`。 |
+| `reasoning.summary[].type=summary_text` | 服务端生成的可读推理摘要，不等于原始 CoT | 保留，标记 `reasoning_kind=summary`。 |
+| `reasoning.encrypted_content` | 客户端不可读的续推状态 | 不写入训练 message；只记录存在性、数量和可选字节长度。 |
+| `response.reasoning` sidecar | 代理从 reasoning text/summary delta 拼出的便利视图 | 仅作结构化 item 缺失时的兜底；当前 sidecar 混合两类 delta，须标记 `reasoning_kind=unknown_or_mixed`。 |
+
+推荐按以下优先级解析，避免重复和语义误标：
+
+```text
+1. 优先读取 final_response.output[].reasoning.content
+2. 再读取同一 item 的 reasoning.summary
+3. 只有结构化 item 没有明文时，才使用 response.reasoning sidecar
+4. 只有 encrypted_content 时才执行 stripped 计数
+5. item 与 sidecar 文本相同或重叠时去重，不能重复生成两条 reasoning
+```
+
+建议的归一化表示为：
+
+```json
+{
+  "role": "assistant",
+  "subtype": "reasoning",
+  "reasoning_kind": "raw",
+  "content": "先检查仓库结构，再定位失败测试。",
+  "source": "response_item.content",
+  "item_id": "rs_..."
+}
+```
+
+摘要必须单独标记：
+
+```json
+{
+  "role": "assistant",
+  "subtype": "reasoning",
+  "reasoning_kind": "summary",
+  "content": "模型先检查结构，然后定位失败测试。",
+  "source": "response_item.summary",
+  "item_id": "rs_..."
+}
+```
+
+reasoning message 应保持其在 output items 中的原始顺序，尤其要保留它位于 tool call/message 之前还是之间的边界。`fidelity.reasoning_text` 只能在拿到 `reasoning_kind=raw` 时设为 `true`；只有 summary 时应新增或使用独立的 `reasoning_summary` fidelity，不能把摘要冒充原始 reasoning。
+
+还需注意非标准兼容形态：某些服务可能返回 Chat Completions 风格 `reasoning_content`，或把思考包在 assistant 文本的 `<think>...</think>` 中。Codex 当前走 Responses wire，优先要求服务端兼容层映射成标准 reasoning item；若 adapter 增加兜底解析，必须记录 `source` 和原始格式，不能无痕改写。
 
 ### 5.9 字段变化图：从 wire record 到 normalized trajectory
 
@@ -1317,7 +1397,7 @@ python3 trajectory_extract/codex_wire_adapter.py \
 ### 不能保证的
 
 - 不是 token 级 rollout：没有 token id 和 logprob；
-- 没有可读的原始 reasoning，不能做真实 CoT 监督；
+- 对当前 ChatGPT encrypted-only 样本，没有可读原始 reasoning，不能做真实 CoT 监督；自定义 provider 即使返回明文，当前 adapter 也会误删，修复不足三后才能保留；
 - “逐字节”应理解为代理读取到的 HTTP 逻辑 body/SSE 字节。请求 zstd 已由 aiohttp 解码，不是保存原始压缩包；
 - WS 改为 HTTP SSE 可能改变传输时延与流式平滑度，尽管逻辑 payload 和上游模型不变；
 - 代理是新的在线依赖：代理不可用时，该模型请求会失败并返回 502；
@@ -1353,6 +1433,7 @@ python3 trajectory_extract/codex_wire_adapter.py \
 | 代理 SSE 重建 | `trajectory-collect/scripts/codex_capture_proxy.py:67-120` |
 | 代理透传、流式回包和旁路 buffer | `trajectory-collect/scripts/codex_capture_proxy.py:164-204` |
 | Responses item → message 映射 | `trajectory_extract/codex_wire_adapter.py:130-188` |
+| 当前 adapter 对所有 reasoning 无条件删除 | `trajectory_extract/codex_wire_adapter.py:158-166` |
 | 当前 adapter 未实现 custom tool，未知类型降为空 system 杂项 | `trajectory_extract/codex_wire_adapter.py:158-188` |
 | 当前 adapter 只从顶层 instructions/tools 归一化 system/tool schema | `trajectory_extract/codex_wire_adapter.py:191-255` |
 | context/completion 切分及输出 schema | `trajectory_extract/codex_wire_adapter.py:191-255` |
@@ -1360,4 +1441,4 @@ python3 trajectory_extract/codex_wire_adapter.py \
 
 ## 11. 一句话评价
 
-Codex 这条采集链路的优势是：**离真实模型 wire 很近、每次调用边界准确、system/tools/usage 都较完整，而且原生 Responses 格式离统一 IR 最近**。它的硬边界也同样明确：**只能学习可观察行为，拿不到可读 reasoning 和 token 级训练信号**。
+Codex 这条采集链路的优势是：**离真实模型 wire 很近、每次调用边界准确、system/tools/usage 都较完整，而且原生 Responses 格式离统一 IR 最近**。它的硬边界也同样明确：**ChatGPT 当前只暴露 encrypted reasoning，拿不到可读 CoT 和 token 级训练信号；自定义模型可以暴露明文 reasoning，但必须先修复 adapter 的无条件剥离逻辑。**
