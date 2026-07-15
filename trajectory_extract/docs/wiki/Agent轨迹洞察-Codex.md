@@ -347,12 +347,12 @@ messages[completion_start_index:]   = 本次模型产生的 completion / target
 
 | Responses item | 归一化结果 | 关键处理 |
 |---|---|---|
-| `instructions` | `role=system, subtype=base_instructions` | 保留 Codex 官方 system 全文 |
-| `type=message` | 原角色 message | `content` 数组抽取并拼接纯文本 |
+| 顶层 `instructions` | `role=system, subtype=base_instructions` | 只适用于标准 Responses；保留 Codex 官方 system 全文 |
+| `type=message` | 原角色 message | `content` 数组抽取并拼接纯文本；包括 `role=developer`，但目前不识别其语义子类型 |
 | `type=function_call` | `role=assistant, tool_calls[]` | 保留 `name`、`call_id`；JSON 字符串 arguments 尽量解析为对象 |
 | `type=function_call_output` | `role=tool` | 用 `call_id` 与调用对齐，保留工具输出文本 |
 | `type=reasoning` | 不进入 messages | 加密/不可读，计入 `n_reasoning_stripped` |
-| 未知 item type | `role=system, subtype=<type>` | 不静默丢弃，保留排障痕迹 |
+| 未知 item type | `role=system, subtype=<type>` | 不静默丢弃类型，但只抽取 content；对含其他结构字段的类型仍可能丢数据 |
 
 文本抽取兼容三种常见形态：纯字符串、带 `text` 的 content part，以及 `input_text`/`output_text` part。
 
@@ -417,6 +417,135 @@ Codex wire 中可能出现 `type=reasoning`，但当前实测形态是空 summar
 发布流程会先跨全量记录 harvest 密钥明文，再递归 scrub 所有字符串；可选 `--redact-pii` 用稳定哈希把 open_id、app_id、内部 IP 替换为同值同代号，从而在保护身份的同时保留跨轮关联。发布文件最终设置为权限 `0600`。
 
 `tools` schema 被排除在字符串 scrub 之外，以避免固定字段名/描述被误伤；这依赖“工具模板本身不含秘密”的前提，若未来工具描述动态注入租户数据，需要重新评估。
+
+### 5.8 当前归一化的两个已确认不足
+
+#### 不足一：没有识别 Responses Lite wire 变体
+
+这个判断是正确的，而且不只是少了一个格式标签，而是会导致 system/tool schema 的实质性误读或丢失。
+
+标准 Responses 的请求形态是：
+
+```json
+{
+  "instructions": "Codex base instructions...",
+  "tools": [{"type": "function", "name": "..."}],
+  "input": [
+    {"type": "message", "role": "user", "content": []}
+  ]
+}
+```
+
+Responses Lite 则把 instructions 和 tools 都移进 `input`：
+
+```json
+{
+  "input": [
+    {
+      "type": "additional_tools",
+      "role": "developer",
+      "tools": [{"type": "function", "name": "..."}]
+    },
+    {
+      "type": "message",
+      "role": "developer",
+      "content": [{"type": "input_text", "text": "Codex base instructions..."}]
+    },
+    {"type": "message", "role": "user", "content": []}
+  ]
+}
+```
+
+同时，Lite 请求还具有这些差异：
+
+- 顶层 `instructions` 为空或被省略；
+- 顶层 `tools` 为 `null` 或被省略；
+- `reasoning.context="all_turns"`；
+- `parallel_tool_calls=false`；
+- HTTP 请求通过 `x-openai-internal-codex-responses-lite: true` 标识，WebSocket 则通过 client metadata 标识；
+- 输入图片会去掉 detail，远程图片可能被替换为说明文本。
+
+当前 adapter 的具体问题是：
+
+1. 只从顶层 `request.instructions` 建 system message，所以 Lite 的 base instructions 不会被识别为 `subtype=base_instructions`；
+2. 只从顶层 `request.tools` 填充归一化 `tools`，所以 Lite 的 `additional_tools.tools` 会丢失；
+3. `_item_to_messages()` 不认识 `type=additional_tools`，会把它降为一个内容为空的 `role=system, subtype=additional_tools`，仅保留类型名，没有保留真正重要的 `tools` 数组；
+4. `fidelity.system_prompt` 和 `fidelity.tools_schema` 会被错误标成 `false`，即使这些信息实际上存在于 Lite input 中；
+5. 输出中没有 `wire_variant=responses_lite`，下游无法区分两种协议布局。
+
+注意，当前捕获文件不保存请求 header，所以 adapter 不能依赖 Lite header 做唯一判断。可以按结构识别：
+
+```text
+顶层 instructions/tools 缺失
++ input[0].type == "additional_tools"
++ input[0].role == "developer"
+```
+
+更完整的改进应当是：
+
+- 增加 `wire_variant: responses | responses_lite | unknown`；
+- Lite 模式从 `additional_tools.tools` 恢复顶层归一化 `tools`；
+- 将紧随 `additional_tools` 的、由 Codex 注入的 developer base-instructions message 标记为 `subtype=base_instructions`；
+- 保留其原始 wire role，例如增加 `original_role="developer"`，避免为了 canonical role 丢 provenance；
+- fidelity 按恢复后的语义字段判断，而不是只检查标准 Responses 的顶层键；
+- 对 Lite、标准 Responses 和畸形/混合格式分别增加 adapter 测试。
+
+#### 不足二：`role=developer` 只做了语法保留，没有做语义归一化
+
+这个判断也成立，但需要说明：当前 adapter **并没有把 developer role 改错或直接丢掉**。`_item_to_messages()` 对 `type=message` 使用原始 `role`，所以普通 developer message 会得到：
+
+```json
+{"role": "developer", "content": "..."}
+```
+
+问题在更深一层：developer message 在 Codex 中不是单一来源，它可能承载：
+
+- Responses Lite 的 base instructions；
+- repo/user 配置中的 developer instructions；
+- permissions、sandbox、环境上下文；
+- skills、plugins、apps、协作模式等动态能力说明；
+- 模型切换、时间提醒或其他运行时注入信息。
+
+当前 adapter 将这些全部压平为同一种 developer message，并把多段 content 拼成纯文本。因此会损失：
+
+- developer message 的语义来源和 subtype；
+- content part 的原始类型与边界；
+- “基础系统指令”和“运行时开发者约束”的区分；
+- 下游只接受 `system/user/assistant/tool` 时的明确兼容策略。
+
+但不能简单把所有 developer message 合并进 system：
+
+- 多条 developer message 的相对顺序可能影响模型可见语义；
+- 有些是稳定基础指令，有些是每轮动态上下文；
+- 合并会让 provenance、缓存分析和配置版本分析变得困难；
+- Lite 的 base instructions 虽然 wire role 是 developer，语义上却对应标准 Responses 的顶层 instructions。
+
+建议采用“双层表示”而不是粗暴改 role：
+
+```json
+{
+  "role": "system",
+  "original_role": "developer",
+  "subtype": "base_instructions",
+  "content": "...",
+  "source": "responses_lite_input"
+}
+```
+
+对于普通 developer instructions，则可以保留：
+
+```json
+{
+  "role": "developer",
+  "original_role": "developer",
+  "subtype": "runtime_developer_instructions",
+  "content": "..."
+}
+```
+
+如果目标训练格式原生支持 developer role，应保持 `role=developer`；如果目标格式只支持 system/user/assistant/tool，再在最终导出层做有记录的映射，而不是在 wire adapter 层无痕合并。无法可靠判断 subtype 时应标为 `developer_unknown`，不能仅凭文本猜成 base instructions。
+
+因此，这两个不足实际上互相关联：**Responses Lite 把原本位于顶层的 system/tools 搬进了 developer input，而当前 adapter 既不识别 Lite，也没有足够细的 developer 语义模型。**
 
 ## 6. 归一化后的输出 schema
 
@@ -524,9 +653,12 @@ python3 trajectory_extract/codex_wire_adapter.py \
 | `supports_websockets=false` 关闭 WS | `openai-codex/codex-rs/core/src/client.rs:926-937` |
 | Codex 优先 WS、否则 HTTP Responses | `openai-codex/codex-rs/core/src/client.rs:1768-1824` |
 | HTTP 分支构建并发送标准 Responses request | `openai-codex/codex-rs/core/src/client.rs:1378-1460` |
+| Responses Lite 把 tools/base instructions 移入 developer input | `openai-codex/codex-rs/core/src/client.rs:834-863` |
+| Responses Lite 去除图片 detail | `openai-codex/codex-rs/core/src/client_common.rs:51-101` |
 | 代理 SSE 重建 | `trajectory-collect/scripts/codex_capture_proxy.py:67-120` |
 | 代理透传、流式回包和旁路 buffer | `trajectory-collect/scripts/codex_capture_proxy.py:164-204` |
 | Responses item → message 映射 | `trajectory_extract/codex_wire_adapter.py:130-188` |
+| 当前 adapter 只从顶层 instructions/tools 归一化 system/tool schema | `trajectory_extract/codex_wire_adapter.py:191-255` |
 | context/completion 切分及输出 schema | `trajectory_extract/codex_wire_adapter.py:191-255` |
 | 发布脱敏与权限控制 | `trajectory_extract/codex_wire_adapter.py:279-361` |
 
